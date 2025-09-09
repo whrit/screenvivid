@@ -269,6 +269,7 @@ class ScreenRecordingThread:
                     frame_time = time.time()
                     self._image_queue.put((screenshot_bytes, frame_time))
                     self._frame_index_queue.put(self._frame_index)
+                    self._frame_timestamps.put(frame_time)
 
                     self._frame_index += 1
                     self._update_fps("capture")
@@ -340,13 +341,32 @@ class ScreenRecordingThread:
             logger.debug(f"Average output FPS: {actual_fps:.2f}")
 
     def _process_mouse_events(self):
-        """Thread 2: Process mouse events using frame_index"""
+        """Thread 2: Process mouse movement and click events"""
         logger.info("Started mouse tracking thread")
+
+        # Queue to collect raw click events from listener
+        click_queue = queue.Queue()
+
+        # Attempt to start pynput listener for mouse clicks
+        listener = None
+        try:
+            from pynput import mouse
+
+            def on_click(x, y, button, pressed):
+                action = "press" if pressed else "release"
+                click_queue.put((x, y, button.name, action))
+
+            listener = mouse.Listener(on_click=on_click)
+            listener.start()
+        except Exception as e:
+            logger.warning(f"Mouse listener unavailable: {e}")
+
         try:
             last_frame = -1
             while not self._is_stopped.is_set():
                 try:
                     frame_index = self._frame_index_queue.get(timeout=0.5)
+                    frame_time = self._frame_timestamps.get(timeout=0.5)
 
                     if frame_index is None:
                         continue
@@ -370,12 +390,24 @@ class ScreenRecordingThread:
                             anim_step,
                         )
 
+                        # Process click events collected since last frame
+                        while not click_queue.empty():
+                            cx, cy, button, action = click_queue.get()
+                            cx *= self._device_pixel_ratio
+                            cy *= self._device_pixel_ratio
+                            rel_x = (cx - self._region[0]) / self._region[2]
+                            rel_y = (cy - self._region[1]) / self._region[3]
+                            self._mouse_events["click"].append(
+                                (rel_x, rel_y, frame_index, button, action, frame_time)
+                            )
+
                         self._update_fps("mouse")
 
                     last_frame = frame_index
                     self._frame_index_queue.task_done()
+                    self._frame_timestamps.task_done()
 
-                    # Tính toán thời gian sleep
+                    # Short sleep to avoid busy waiting
                     time.sleep(0.001)
 
                 except queue.Empty:
@@ -385,6 +417,8 @@ class ScreenRecordingThread:
                     break
 
         finally:
+            if listener:
+                listener.stop()
             logger.debug("Mouse tracking thread stopped")
 
     def _get_ffmpeg_command(self):
