@@ -9,6 +9,14 @@ Item {
     property string color: "#484554"
     property bool animationEnabled: true // Property to enable/disable animation
 
+    function formatTime(frame) {
+        var fps = studioWindow.fps
+        var totalSeconds = frame / fps
+        var minutes = Math.floor(totalSeconds / 60)
+        var seconds = Math.floor(totalSeconds % 60)
+        return minutes.toString().padStart(2, '0') + ':' + seconds.toString().padStart(2, '0')
+    }
+
     Rectangle {
         id: timeSliderHead
         width: parent.width
@@ -18,7 +26,9 @@ Item {
         color: parent.color
 
         MouseArea {
+            id: headArea
             anchors.fill: parent
+            hoverEnabled: true
 
             drag {
                 target: timeSlider
@@ -32,6 +42,11 @@ Item {
                             timeSlider.x / studioWindow.pixelsPerFrame)
                 videoController.jump_to_frame(currentFrame)
             }
+        }
+
+        ToolTip {
+            visible: headArea.containsMouse
+            text: formatTime(Math.round(timeSlider.x / studioWindow.pixelsPerFrame))
         }
     }
 

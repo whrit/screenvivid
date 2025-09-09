@@ -37,6 +37,8 @@ class VideoControllerModel(QObject):
     highlightRadiusChanged = Signal(int)
     autoZoomEnabledChanged = Signal(bool)
     zoomFactorChanged = Signal(float)
+    clickEventsChanged = Signal()
+    zoomKeyframesChanged = Signal()
 
     def __init__(self, frame_provider):
         super().__init__()
@@ -205,6 +207,34 @@ class VideoControllerModel(QObject):
             self.video_processor.zoom_factor = value
             self.zoomFactorChanged.emit(value)
 
+    @Property('QVariantList', notify=clickEventsChanged)
+    def clickEvents(self):
+        return self.video_processor.click_events
+
+    @clickEvents.setter
+    def clickEvents(self, value):
+        self.video_processor.click_events = value
+        self.clickEventsChanged.emit()
+
+    @Property('QVariantMap', notify=zoomKeyframesChanged)
+    def zoomKeyframes(self):
+        return self.video_processor.zoom_keyframes
+
+    @zoomKeyframes.setter
+    def zoomKeyframes(self, value):
+        self.video_processor.zoom_keyframes = value
+        self.zoomKeyframesChanged.emit()
+
+    @Slot(int, float, float, float)
+    def add_zoom_keyframe(self, frame, x, y, zoom):
+        self.video_processor.add_zoom_keyframe(frame, x, y, zoom)
+        self.zoomKeyframesChanged.emit()
+
+    @Slot(int, float, float, float)
+    def update_zoom_keyframe(self, frame, x, y, zoom):
+        self.video_processor.update_zoom_keyframe(frame, x, y, zoom)
+        self.zoomKeyframesChanged.emit()
+
     @Property(bool, notify=playingChanged)
     def is_playing(self):
         return self.video_processor.is_playing
@@ -251,7 +281,11 @@ class VideoControllerModel(QObject):
     def load_video(self, path, metadata):
         self.video_path = path
         self.is_recording_video = metadata["recording"]
-        return self.video_processor.load_video(path, metadata)
+        success = self.video_processor.load_video(path, metadata)
+        if success:
+            self.clickEventsChanged.emit()
+            self.zoomKeyframesChanged.emit()
+        return success
 
     @Slot()
     def toggle_play_pause(self):
@@ -360,6 +394,7 @@ class VideoProcessor(QObject):
         self._transforms = None
         self._mouse_events = []
         self._click_events = []
+        self._zoom_keyframes = {}
         self._region = None
         self._x_offset = None
         self._y_offset = None
@@ -499,6 +534,7 @@ class VideoProcessor(QObject):
                 self._transforms["auto_zoom"] = transforms.AutoZoom(
                     move_data=self._mouse_events,
                     zoom_factor=self._zoom_factor,
+                    keyframes=self._zoom_keyframes,
                 )
             else:
                 self._transforms["auto_zoom"] = transforms.Identity()
@@ -514,6 +550,7 @@ class VideoProcessor(QObject):
             self._transforms["auto_zoom"] = transforms.AutoZoom(
                 move_data=self._mouse_events,
                 zoom_factor=value,
+                keyframes=self._zoom_keyframes,
             )
 
     @property
@@ -575,6 +612,7 @@ class VideoProcessor(QObject):
                 self._transforms["auto_zoom"] = transforms.AutoZoom(
                     move_data=self._mouse_events,
                     zoom_factor=self._zoom_factor,
+                    keyframes=self._zoom_keyframes,
                 )
 
     @property
@@ -590,6 +628,28 @@ class VideoProcessor(QObject):
                 color=self._highlight_color,
                 radius=self._highlight_radius,
             )
+
+    @property
+    def zoom_keyframes(self):
+        return self._zoom_keyframes
+
+    @zoom_keyframes.setter
+    def zoom_keyframes(self, value):
+        self._zoom_keyframes = value
+        if self._transforms is not None and self._auto_zoom_enabled:
+            self._transforms["auto_zoom"] = transforms.AutoZoom(
+                move_data=self._mouse_events,
+                zoom_factor=self._zoom_factor,
+                keyframes=self._zoom_keyframes,
+            )
+
+    def add_zoom_keyframe(self, frame, x, y, zoom):
+        self._zoom_keyframes[frame] = (x, y, zoom)
+        if self._transforms is not None and self._auto_zoom_enabled:
+            self._transforms["auto_zoom"].keyframes = self._zoom_keyframes
+
+    def update_zoom_keyframe(self, frame, x, y, zoom):
+        self.add_zoom_keyframe(frame, x, y, zoom)
 
     @property
     def current_frame(self):
@@ -635,6 +695,7 @@ class VideoProcessor(QObject):
             self.mouse_events = metadata.get("mouse_events", {}).get("move", {}) if metadata else {}
             self._cursors_map = metadata.get("mouse_events", {}).get("cursors_map", {}) if metadata else {}
             self.click_events = metadata.get("mouse_events", {}).get("click", []) if metadata else []
+            self.zoom_keyframes = metadata.get("zoom_keyframes", {}) if metadata else {}
             self._region = metadata.get("region", []) if metadata else []
 
             if self._region:
@@ -650,6 +711,7 @@ class VideoProcessor(QObject):
                 "auto_zoom": transforms.AutoZoom(
                     move_data=self._mouse_events,
                     zoom_factor=self._zoom_factor,
+                    keyframes=self._zoom_keyframes,
                 ) if self._auto_zoom_enabled else transforms.Identity(),
                 "click_highlight": transforms.ClickHighlight(
                     click_data=self._click_events,
