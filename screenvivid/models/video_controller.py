@@ -32,6 +32,9 @@ class VideoControllerModel(QObject):
     canRedoChanged = Signal(bool)
     outputSizeChanged = Signal()
     fpsChanged = Signal(int)
+    highlightEnabledChanged = Signal(bool)
+    autoZoomEnabledChanged = Signal(bool)
+    zoomFactorChanged = Signal(float)
 
     def __init__(self, frame_provider):
         super().__init__()
@@ -149,6 +152,36 @@ class VideoControllerModel(QObject):
         if self.video_processor.cursor_scale != value:
             self.video_processor.cursor_scale = value
             self.cursorScaleChanged.emit()
+
+    @Property(bool, notify=highlightEnabledChanged)
+    def highlightEnabled(self):
+        return self.video_processor.highlight_enabled
+
+    @highlightEnabled.setter
+    def highlightEnabled(self, value):
+        if self.video_processor.highlight_enabled != value:
+            self.video_processor.highlight_enabled = value
+            self.highlightEnabledChanged.emit(value)
+
+    @Property(bool, notify=autoZoomEnabledChanged)
+    def autoZoomEnabled(self):
+        return self.video_processor.auto_zoom_enabled
+
+    @autoZoomEnabled.setter
+    def autoZoomEnabled(self, value):
+        if self.video_processor.auto_zoom_enabled != value:
+            self.video_processor.auto_zoom_enabled = value
+            self.autoZoomEnabledChanged.emit(value)
+
+    @Property(float, notify=zoomFactorChanged)
+    def zoomFactor(self):
+        return self.video_processor.zoom_factor
+
+    @zoomFactor.setter
+    def zoomFactor(self, value):
+        if self.video_processor.zoom_factor != value:
+            self.video_processor.zoom_factor = value
+            self.zoomFactorChanged.emit(value)
 
     @Property(bool, notify=playingChanged)
     def is_playing(self):
@@ -297,8 +330,12 @@ class VideoProcessor(QObject):
         self._background = {"type": "wallpaper", "value": 1}
         self._device_pixel_ratio = 1.0
         self._cursor_scale = 1.0
+        self._highlight_enabled = False
+        self._auto_zoom_enabled = False
+        self._zoom_factor = 2.0
         self._transforms = None
         self._mouse_events = []
+        self._click_events = []
         self._region = None
         self._x_offset = None
         self._y_offset = None
@@ -382,6 +419,50 @@ class VideoProcessor(QObject):
         )
 
     @property
+    def highlight_enabled(self):
+        return self._highlight_enabled
+
+    @highlight_enabled.setter
+    def highlight_enabled(self, value):
+        self._highlight_enabled = value
+        if self._transforms is not None:
+            if value:
+                self._transforms["click_highlight"] = transforms.ClickHighlight(
+                    click_data=self._click_events
+                )
+            else:
+                self._transforms["click_highlight"] = transforms.Identity()
+
+    @property
+    def auto_zoom_enabled(self):
+        return self._auto_zoom_enabled
+
+    @auto_zoom_enabled.setter
+    def auto_zoom_enabled(self, value):
+        self._auto_zoom_enabled = value
+        if self._transforms is not None:
+            if value:
+                self._transforms["auto_zoom"] = transforms.AutoZoom(
+                    move_data=self._mouse_events,
+                    zoom_factor=self._zoom_factor,
+                )
+            else:
+                self._transforms["auto_zoom"] = transforms.Identity()
+
+    @property
+    def zoom_factor(self):
+        return self._zoom_factor
+
+    @zoom_factor.setter
+    def zoom_factor(self, value):
+        self._zoom_factor = value
+        if self._transforms is not None and self._auto_zoom_enabled:
+            self._transforms["auto_zoom"] = transforms.AutoZoom(
+                move_data=self._mouse_events,
+                zoom_factor=value,
+            )
+
+    @property
     def total_frames(self):
         return self._total_frames
 
@@ -429,6 +510,30 @@ class VideoProcessor(QObject):
     @mouse_events.setter
     def mouse_events(self, value):
         self._mouse_events = value
+        if self._transforms is not None:
+            self._transforms["cursor"] = transforms.Cursor(
+                move_data=self._mouse_events,
+                cursors_map=self._cursors_map,
+                offsets=(self._x_offset, self._y_offset),
+                scale=self._cursor_scale,
+            )
+            if self._auto_zoom_enabled:
+                self._transforms["auto_zoom"] = transforms.AutoZoom(
+                    move_data=self._mouse_events,
+                    zoom_factor=self._zoom_factor,
+                )
+
+    @property
+    def click_events(self):
+        return self._click_events
+
+    @click_events.setter
+    def click_events(self, value):
+        self._click_events = value
+        if self._transforms is not None and self._highlight_enabled:
+            self._transforms["click_highlight"] = transforms.ClickHighlight(
+                click_data=self._click_events
+            )
 
     @property
     def current_frame(self):
@@ -471,8 +576,9 @@ class VideoProcessor(QObject):
             self._start_frames.append(0)
             self._end_frames.append(self.total_frames)
 
-            self._mouse_events = metadata.get("mouse_events", {}).get("move", {}) if metadata else {}
+            self.mouse_events = metadata.get("mouse_events", {}).get("move", {}) if metadata else {}
             self._cursors_map = metadata.get("mouse_events", {}).get("cursors_map", {}) if metadata else {}
+            self.click_events = metadata.get("mouse_events", {}).get("click", []) if metadata else []
             self._region = metadata.get("region", []) if metadata else []
 
             if self._region:
@@ -485,7 +591,19 @@ class VideoProcessor(QObject):
             screen_size = int(screen_width * self._device_pixel_ratio), int(screen_height * self._device_pixel_ratio)
             self._transforms = transforms.Compose({
                 "aspect_ratio": transforms.AspectRatio(self._aspect_ratio, screen_size),
-                "cursor": transforms.Cursor(move_data=self._mouse_events, cursors_map=self._cursors_map, offsets=(x_offset, y_offset), scale=self._cursor_scale),
+                "auto_zoom": transforms.AutoZoom(
+                    move_data=self._mouse_events,
+                    zoom_factor=self._zoom_factor,
+                ) if self._auto_zoom_enabled else transforms.Identity(),
+                "click_highlight": transforms.ClickHighlight(
+                    click_data=self._click_events
+                ) if self._highlight_enabled else transforms.Identity(),
+                "cursor": transforms.Cursor(
+                    move_data=self._mouse_events,
+                    cursors_map=self._cursors_map,
+                    offsets=(x_offset, y_offset),
+                    scale=self._cursor_scale,
+                ),
                 "padding": transforms.Padding(padding=self.padding),
                 # "inset": transforms.Inset(inset=self.inset, color=(0, 0, 0)),
                 "border_shadow": transforms.BorderShadow(border_radius=self.border_radius),

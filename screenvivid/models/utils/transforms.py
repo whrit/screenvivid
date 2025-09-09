@@ -39,6 +39,13 @@ class Compose(BaseTransform):
     def get(self, key, default=None):
         return self.transforms.get(key, default)
 
+
+class Identity(BaseTransform):
+    """A no-op transform used to disable pipeline stages."""
+
+    def __call__(self, **kwargs):
+        return kwargs
+
 class AspectRatio(BaseTransform):
     def __init__(self, aspect_ratio: str, screen_size: tuple):
         super().__init__()
