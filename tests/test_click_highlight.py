@@ -57,3 +57,19 @@ def test_click_highlight_renders_at_coordinates():
     # After duration, highlight should vanish
     result = highlight(input=frame.copy(), start_frame=3)
     assert (result["input"][50, 50] == [0, 0, 0]).all()
+
+
+def test_click_highlight_can_be_disabled():
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    click_data = [(0.5, 0.5, 0, "left", "press", 0.0)]
+
+    enabled = transforms.Compose({
+        "highlight": transforms.ClickHighlight(click_data=click_data, color=(255, 0, 0))
+    })
+    disabled = transforms.Compose({"highlight": transforms.Identity()})
+
+    result_enabled = enabled(input=frame.copy(), start_frame=0)["input"]
+    result_disabled = disabled(input=frame.copy(), start_frame=0)["input"]
+
+    assert result_enabled[50, 50, 2] > 0
+    assert (result_disabled[50, 50] == [0, 0, 0]).all()

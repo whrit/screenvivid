@@ -86,3 +86,20 @@ def test_autozoom_smoothing_behavior():
     # Ensure smoothing prevented jumping directly to target (80)
     assert center1[2] < 70
 
+
+def test_autozoom_can_be_disabled():
+    frame = _gradient_frame(100, 100)
+    move_data = {0: (0.8, 0.5, 0, "", 0)}
+
+    enabled = transforms.Compose({
+        "auto_zoom": transforms.AutoZoom(move_data=move_data, zoom_factor=2.0)
+    })
+    disabled = transforms.Compose({"auto_zoom": transforms.Identity()})
+
+    result_enabled = enabled(input=frame.copy(), start_frame=0)["input"]
+    result_disabled = disabled(input=frame.copy(), start_frame=0)["input"]
+
+    # Enabled transform should alter the frame while disabled returns original
+    assert not np.array_equal(result_enabled, frame)
+    assert np.array_equal(result_disabled, frame)
+
