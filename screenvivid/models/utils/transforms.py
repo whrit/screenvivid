@@ -358,6 +358,86 @@ class Cursor(BaseTransform):
 
         return kwargs
 
+
+class ClickHighlight(BaseTransform):
+    """Render animated click highlights on frames.
+
+    Parameters
+    ----------
+    color : tuple | str | None
+        Highlight color as an RGB tuple or hexadecimal string. If ``None``, a
+        platform specific default is used.
+    radius : int
+        Base radius of the highlight circle in pixels.
+    opacity : float
+        Maximum opacity of the highlight (0.0 – 1.0).
+    duration : int
+        Number of frames the highlight animation should last.
+    click_data : list
+        Sequence of click events where each item is
+        ``(x_rel, y_rel, frame_index, button, action, timestamp)``.
+    """
+
+    def __init__(
+        self,
+        color=None,
+        radius: int = 20,
+        opacity: float = 0.6,
+        duration: int = 15,
+        click_data=None,
+    ) -> None:
+        super().__init__()
+
+        self.os_name = get_os_name()
+
+        if color is None:
+            # Default colors for common platforms (RGB)
+            default_colors = {
+                "windows": "#0078d7",
+                "macos": "#0a84ff",
+                "linux": "#ffcc00",
+            }
+            color = default_colors.get(self.os_name, "#ff0000")
+
+        if isinstance(color, str):
+            rgb = hex_to_rgb(color)
+        else:
+            rgb = color
+
+        # OpenCV expects BGR order
+        self.color = (rgb[2], rgb[1], rgb[0])
+
+        self.radius = radius
+        self.opacity = opacity
+        self.duration = duration
+        self.click_data = click_data or []
+
+    def __call__(self, **kwargs):
+        if "start_frame" not in kwargs or not self.click_data:
+            return kwargs
+
+        frame = kwargs["input"]
+        start_frame = kwargs["start_frame"]
+        height, width = frame.shape[:2]
+
+        for x_rel, y_rel, frame_idx, button, action, _ in self.click_data:
+            if action != "press":
+                continue
+            if frame_idx <= start_frame < frame_idx + self.duration:
+                anim_step = start_frame - frame_idx
+                radius = int(self.radius * (1 + anim_step / self.duration))
+                alpha = self.opacity * (1 - anim_step / self.duration)
+
+                x = int(x_rel * width)
+                y = int(y_rel * height)
+
+                overlay = frame.copy()
+                cv2.circle(overlay, (x, y), radius, self.color, -1, lineType=cv2.LINE_AA)
+                frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+        kwargs["input"] = frame
+        return kwargs
+
 class BorderShadow(BaseTransform):
     def __init__(self, border_radius, shadow_blur: int = 10, shadow_opacity: float = 0.5) -> None:
         self.border_radius = border_radius
