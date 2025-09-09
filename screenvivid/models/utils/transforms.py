@@ -180,6 +180,107 @@ class Inset(BaseTransform):
             kwargs['input'] = self.inset_frame
         return kwargs
 
+class AutoZoom(BaseTransform):
+    """Automatically zoom around cursor or click positions.
+
+    Parameters
+    ----------
+    move_data : dict | None
+        Mapping of frame index to cursor coordinates as ``(x_rel, y_rel, *_)``.
+    zoom_factor : float
+        The magnification level. A value of ``2.0`` will crop to half the
+        width/height around the focus point and scale back to the original
+        resolution.
+    pan_speed : float
+        Interpolation factor controlling how quickly the viewport moves towards
+        the target position each frame.
+    smoothing : float
+        Interpolation factor applied to the raw cursor positions to reduce
+        jitter.
+    edge_margin : int
+        Minimum number of pixels to keep between the cropped region and the
+        frame edge.
+    keyframes : dict | None
+        Optional mapping of frame index to ``(x_rel, y_rel, zoom)`` tuples
+        providing manual overrides.
+    """
+
+    def __init__(
+        self,
+        move_data=None,
+        zoom_factor: float = 2.0,
+        pan_speed: float = 0.2,
+        smoothing: float = 0.1,
+        edge_margin: int = 0,
+        keyframes=None,
+    ) -> None:
+        super().__init__()
+
+        self.move_data = move_data or {}
+        self.zoom_factor = zoom_factor
+        self.pan_speed = pan_speed
+        self.smoothing = smoothing
+        self.edge_margin = edge_margin
+        self.keyframes = keyframes or {}
+
+        # Internal state for smoothed cursor and viewport center
+        self._smoothed_pos = np.array([0.5, 0.5], dtype=np.float32)
+        self._viewport_center = np.array([0.5, 0.5], dtype=np.float32)
+
+    def __call__(self, **kwargs):
+        if "start_frame" not in kwargs:
+            return kwargs
+
+        frame = kwargs["input"]
+        h, w = frame.shape[:2]
+        idx = kwargs["start_frame"]
+
+        if idx in self.keyframes:
+            # Directly set to keyframe values
+            cx, cy, zf = self.keyframes[idx]
+            self._viewport_center[:] = [cx, cy]
+            self._smoothed_pos[:] = [cx, cy]
+            current_zoom = max(1.0, zf)
+        else:
+            current_zoom = max(1.0, self.zoom_factor)
+
+            if idx in self.move_data:
+                x, y = self.move_data[idx][:2]
+                target = np.array([x, y], dtype=np.float32)
+                self._smoothed_pos = (
+                    (1 - self.smoothing) * self._smoothed_pos
+                    + self.smoothing * target
+                )
+
+            self._viewport_center += (
+                self._smoothed_pos - self._viewport_center
+            ) * self.pan_speed
+
+        crop_w = int(w / current_zoom)
+        crop_h = int(h / current_zoom)
+
+        cx = self._viewport_center[0] * w
+        cy = self._viewport_center[1] * h
+
+        x1 = int(round(cx - crop_w / 2))
+        y1 = int(round(cy - crop_h / 2))
+
+        # Clamp crop coordinates so the region stays within the frame
+        x1 = max(self.edge_margin, min(w - crop_w - self.edge_margin, x1))
+        y1 = max(self.edge_margin, min(h - crop_h - self.edge_margin, y1))
+
+        x2 = x1 + crop_w
+        y2 = y1 + crop_h
+
+        cropped = frame[y1:y2, x1:x2]
+        if (crop_w, crop_h) != (w, h):
+            resized = cv2.resize(cropped, (w, h), cv2.INTER_LINEAR)
+        else:
+            resized = cropped
+
+        kwargs["input"] = resized
+        return kwargs
+
 class Cursor(BaseTransform):
     def __init__(self, move_data, cursors_map, offsets, size=32, scale=1.0):
         super().__init__()
