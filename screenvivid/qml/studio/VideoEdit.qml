@@ -1,5 +1,6 @@
 import QtQuick 6.7
 import QtQuick.Controls 6.7
+import QtQuick.Dialogs 6.7
 
 Rectangle {
     id: videoEdit
@@ -10,7 +11,10 @@ Rectangle {
 
     Flickable {
         id: scrollView
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: settingsPanel.left
         contentWidth: studioWindow.fps * studioWindow.videoLen * studioWindow.pixelsPerFrame + 200
         contentHeight: parent.height
         property real currentScrollX: 0
@@ -100,6 +104,80 @@ Rectangle {
                         scrollView.contentX = newContentX
                     }
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        id: settingsPanel
+        width: 200
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        color: "#1e2228"
+
+        Column {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 10
+
+            CheckBox {
+                text: qsTr("Click Highlight")
+                checked: videoController.highlightEnabled
+                onToggled: videoController.highlightEnabled = checked
+            }
+
+            CheckBox {
+                text: qsTr("Auto Zoom")
+                checked: videoController.autoZoomEnabled
+                onToggled: videoController.autoZoomEnabled = checked
+            }
+
+            Rectangle {
+                id: previewBox
+                width: parent.width
+                height: 80
+                color: "#2c313c"
+                radius: 4
+
+                Rectangle {
+                    width: videoController.highlightRadius * 2
+                    height: videoController.highlightRadius * 2
+                    radius: videoController.highlightRadius
+                    color: videoController.highlightColor
+                    opacity: 0.6
+                    anchors.centerIn: parent
+                }
+            }
+
+            Button {
+                id: colorButton
+                text: qsTr("Highlight Color")
+                onClicked: colorDialog.open()
+                background: Rectangle {
+                    color: videoController.highlightColor
+                    radius: 4
+                }
+            }
+
+            ColorDialog {
+                id: colorDialog
+                selectedColor: videoController.highlightColor
+                onAccepted: videoController.highlightColor = selectedColor
+            }
+
+            Text { text: qsTr("Radius") ; color: "#AAAAAA" }
+            Slider {
+                from: 5; to: 100; stepSize: 1
+                value: videoController.highlightRadius
+                onValueChanged: videoController.highlightRadius = value
+            }
+
+            Text { text: qsTr("Zoom Factor") ; color: "#AAAAAA" }
+            Slider {
+                from: 1.0; to: 5.0; stepSize: 0.1
+                value: videoController.zoomFactor
+                onValueChanged: videoController.zoomFactor = value
             }
         }
     }

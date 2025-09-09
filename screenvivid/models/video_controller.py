@@ -33,6 +33,8 @@ class VideoControllerModel(QObject):
     outputSizeChanged = Signal()
     fpsChanged = Signal(int)
     highlightEnabledChanged = Signal(bool)
+    highlightColorChanged = Signal(str)
+    highlightRadiusChanged = Signal(int)
     autoZoomEnabledChanged = Signal(bool)
     zoomFactorChanged = Signal(float)
 
@@ -162,6 +164,26 @@ class VideoControllerModel(QObject):
         if self.video_processor.highlight_enabled != value:
             self.video_processor.highlight_enabled = value
             self.highlightEnabledChanged.emit(value)
+
+    @Property(str, notify=highlightColorChanged)
+    def highlightColor(self):
+        return self.video_processor.highlight_color
+
+    @highlightColor.setter
+    def highlightColor(self, value):
+        if self.video_processor.highlight_color != value:
+            self.video_processor.highlight_color = value
+            self.highlightColorChanged.emit(value)
+
+    @Property(int, notify=highlightRadiusChanged)
+    def highlightRadius(self):
+        return self.video_processor.highlight_radius
+
+    @highlightRadius.setter
+    def highlightRadius(self, value):
+        if self.video_processor.highlight_radius != value:
+            self.video_processor.highlight_radius = value
+            self.highlightRadiusChanged.emit(value)
 
     @Property(bool, notify=autoZoomEnabledChanged)
     def autoZoomEnabled(self):
@@ -331,6 +353,8 @@ class VideoProcessor(QObject):
         self._device_pixel_ratio = 1.0
         self._cursor_scale = 1.0
         self._highlight_enabled = False
+        self._highlight_color = "#ffcc00"
+        self._highlight_radius = 20
         self._auto_zoom_enabled = False
         self._zoom_factor = 2.0
         self._transforms = None
@@ -428,10 +452,40 @@ class VideoProcessor(QObject):
         if self._transforms is not None:
             if value:
                 self._transforms["click_highlight"] = transforms.ClickHighlight(
-                    click_data=self._click_events
+                    click_data=self._click_events,
+                    color=self._highlight_color,
+                    radius=self._highlight_radius,
                 )
             else:
                 self._transforms["click_highlight"] = transforms.Identity()
+
+    @property
+    def highlight_color(self):
+        return self._highlight_color
+
+    @highlight_color.setter
+    def highlight_color(self, value):
+        self._highlight_color = value
+        if self._transforms is not None and self._highlight_enabled:
+            self._transforms["click_highlight"] = transforms.ClickHighlight(
+                click_data=self._click_events,
+                color=value,
+                radius=self._highlight_radius,
+            )
+
+    @property
+    def highlight_radius(self):
+        return self._highlight_radius
+
+    @highlight_radius.setter
+    def highlight_radius(self, value):
+        self._highlight_radius = value
+        if self._transforms is not None and self._highlight_enabled:
+            self._transforms["click_highlight"] = transforms.ClickHighlight(
+                click_data=self._click_events,
+                color=self._highlight_color,
+                radius=value,
+            )
 
     @property
     def auto_zoom_enabled(self):
@@ -532,7 +586,9 @@ class VideoProcessor(QObject):
         self._click_events = value
         if self._transforms is not None and self._highlight_enabled:
             self._transforms["click_highlight"] = transforms.ClickHighlight(
-                click_data=self._click_events
+                click_data=self._click_events,
+                color=self._highlight_color,
+                radius=self._highlight_radius,
             )
 
     @property
@@ -596,7 +652,9 @@ class VideoProcessor(QObject):
                     zoom_factor=self._zoom_factor,
                 ) if self._auto_zoom_enabled else transforms.Identity(),
                 "click_highlight": transforms.ClickHighlight(
-                    click_data=self._click_events
+                    click_data=self._click_events,
+                    color=self._highlight_color,
+                    radius=self._highlight_radius,
                 ) if self._highlight_enabled else transforms.Identity(),
                 "cursor": transforms.Cursor(
                     move_data=self._mouse_events,

@@ -124,6 +124,28 @@ Item {
                     icon.color: "#e8eaed"
                     onClicked: videoController.next_frame()
                 }
+                ToolButton {
+                    icon.source: "qrc:/resources/icons/zoom.svg"
+                    icon.color: videoController.autoZoomEnabled ? "#e8eaed" : "#555555"
+                    shortcut: "Z"
+                    onClicked: videoController.autoZoomEnabled = !videoController.autoZoomEnabled
+                    ToolTip {
+                        visible: parent.hovered
+                        text: qsTr("Toggle Auto Zoom (Z)")
+                        background: Rectangle { color: "#1d1d1d"; radius: 10 }
+                    }
+                }
+                ToolButton {
+                    icon.source: "qrc:/resources/icons/mouse.svg"
+                    icon.color: videoController.highlightEnabled ? "#e8eaed" : "#555555"
+                    shortcut: "H"
+                    onClicked: videoController.highlightEnabled = !videoController.highlightEnabled
+                    ToolTip {
+                        visible: parent.hovered
+                        text: qsTr("Toggle Click Highlight (H)")
+                        background: Rectangle { color: "#1d1d1d"; radius: 10 }
+                    }
+                }
             }
         }
 
