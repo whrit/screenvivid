@@ -3,6 +3,31 @@ import sys
 import importlib.util
 
 import numpy as np
+import types
+
+fake_cv2 = types.SimpleNamespace()
+
+def _resize(img, size, interpolation=None):
+    from PIL import Image
+
+    return np.array(Image.fromarray(img).resize(size[::-1], Image.BILINEAR))
+
+def _circle(img, center, radius, color, thickness=-1, lineType=None):
+    yy, xx = np.ogrid[:img.shape[0], :img.shape[1]]
+    mask = (xx - center[0]) ** 2 + (yy - center[1]) ** 2 <= radius ** 2
+    img[mask] = color
+    return img
+
+def _addWeighted(a, alpha, b, beta, gamma):
+    return (a * alpha + b * beta + gamma).astype(a.dtype)
+
+fake_cv2.resize = _resize
+fake_cv2.circle = _circle
+fake_cv2.addWeighted = _addWeighted
+fake_cv2.INTER_LINEAR = 1
+fake_cv2.LINE_AA = 1
+
+sys.modules.setdefault("cv2", fake_cv2)
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
